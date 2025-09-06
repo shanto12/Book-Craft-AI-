@@ -72,7 +72,7 @@ const PdfDocument: React.FC<{ book: Book | null, a4Ref: React.RefObject<HTMLDivE
         fontSize: '12pt',
         lineHeight: '1.6',
         whiteSpace: 'pre-wrap',
-        textAlign: 'justify',
+        textAlign: 'left', // Changed from 'justify' to 'left' to fix PDF rendering bug
         paddingTop: '15mm',
         paddingBottom: '10mm',
     };
