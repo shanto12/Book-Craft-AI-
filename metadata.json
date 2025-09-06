@@ -1,0 +1,5 @@
+{
+  "name": "BookCraft AI",
+  "description": "Generate an entire, beautifully illustrated book from a single prompt. BookCraft AI handles plot creation, chapter writing, illustrations, and formatting, delivering a downloadable PDF ready for reading.",
+  "requestFramePermissions": []
+}
