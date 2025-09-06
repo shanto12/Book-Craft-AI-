@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -6,7 +7,9 @@ import JSZip from 'jszip';
 import { Book, GenerationStatus, Chapter } from './types';
 import * as geminiService from './services/geminiService';
 import { generateEpub } from './services/epubService';
-import { BookIcon, DownloadIcon, SparkleIcon, PackageIcon } from './components/Icons';
+import { BookIcon, DownloadIcon, SparkleIcon, PackageIcon, HistoryIcon, TrashIcon } from './components/Icons';
+
+const HISTORY_KEY = 'bookcraft_history';
 
 // Helper component defined outside App to prevent re-creation on re-renders
 const PdfDocument: React.FC<{ book: Book | null, a4Ref: React.RefObject<HTMLDivElement> }> = ({ book, a4Ref }) => {
@@ -124,12 +127,28 @@ const PdfDocument: React.FC<{ book: Book | null, a4Ref: React.RefObject<HTMLDivE
                  <div style={{paddingTop: '15mm'}}>
                      <h2 style={headingStyle} className="text-3xl mb-8 border-b pb-2 text-center">Table of Contents</h2>
                      <ul className="space-y-3">
+                        <li style={bodyStyle} className="text-lg">Dramatis Personae</li>
                         <li style={bodyStyle} className="text-lg">Preface</li>
                         {book.chapters.map((chapter, index) => (
                             <li key={index} style={bodyStyle} className="text-lg">Chapter {index + 1}: {chapter.title}</li>
                         ))}
                         <li style={bodyStyle} className="text-lg">About the Author</li>
                      </ul>
+                </div>
+            </div>
+            
+            {/* Dramatis Personae */}
+            <div style={pageStyle}>
+                <div className="page-header"><span>{book.title}</span><span>Dramatis Personae</span></div>
+                <div className="page-footer">{pageCounter++}</div>
+                <div style={chapterContentStyle}>
+                    <h2 style={headingStyle} className="text-3xl mb-6 border-b pb-2">Dramatis Personae</h2>
+                    {book.mainCharacters.map(char => (
+                        <div key={char.name} className="mb-6">
+                            <h3 style={headingStyle} className="text-xl font-bold">{char.name} <span className="text-lg font-normal italic text-gray-600">- {char.role}</span></h3>
+                            <p style={bodyStyle} className="mt-1 text-base">{char.description}</p>
+                        </div>
+                    ))}
                 </div>
             </div>
 
@@ -186,6 +205,45 @@ const PdfDocument: React.FC<{ book: Book | null, a4Ref: React.RefObject<HTMLDivE
     );
 };
 
+const HistoryPanel: React.FC<{
+    history: Book[];
+    onLoadBook: (book: Book) => void;
+    onClearHistory: () => void;
+    onClose: () => void;
+}> = ({ history, onLoadBook, onClearHistory, onClose }) => {
+    return (
+        <div className="absolute inset-0 bg-black/60 z-20 flex justify-end" onClick={onClose}>
+            <div className="w-full max-w-md bg-gray-800 h-full flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <h2 className="text-xl font-bold text-white flex items-center"><HistoryIcon className="mr-2"/> Your Library</h2>
+                    <button onClick={onClearHistory} className="text-sm text-red-400 hover:text-red-300 flex items-center" title="Clear History">
+                        <TrashIcon className="w-4 h-4 mr-1"/> Clear All
+                    </button>
+                </div>
+                {history.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-4">
+                        <BookIcon className="w-16 h-16 mb-4"/>
+                        <p>No books created yet.</p>
+                        <p className="text-sm">Your generated books will appear here.</p>
+                    </div>
+                ) : (
+                    <div className="flex-1 overflow-y-auto p-2">
+                        {history.map((book, index) => (
+                            <div key={index} onClick={() => onLoadBook(book)} className="flex items-center p-3 rounded-lg hover:bg-gray-700/50 cursor-pointer transition-colors duration-200">
+                                <img src={book.coverImageUrl} alt={book.title} className="w-16 h-24 object-cover rounded-md shadow-lg mr-4"/>
+                                <div className="overflow-hidden">
+                                    <h3 className="font-bold text-white truncate">{book.title}</h3>
+                                    <p className="text-sm text-gray-300">by {book.author.name}</p>
+                                    <p className="text-xs text-gray-400 mt-1">{new Date().toLocaleDateString()}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 export default function App() {
     const [status, setStatus] = useState<GenerationStatus>(GenerationStatus.Idle);
@@ -194,18 +252,33 @@ export default function App() {
     const [progress, setProgress] = useState({ task: '', percentage: 0 });
     const [error, setError] = useState<string | null>(null);
     const [isDownloading, setIsDownloading] = useState(false);
+    const [history, setHistory] = useState<Book[]>([]);
+    const [showHistory, setShowHistory] = useState(false);
     
     const pdfRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        try {
+            const storedHistory = localStorage.getItem(HISTORY_KEY);
+            if (storedHistory) {
+                setHistory(JSON.parse(storedHistory));
+            }
+        } catch (e) {
+            console.error("Failed to load history from localStorage", e);
+        }
+    }, []);
     
     useEffect(() => {
         if (book?.theme?.fontPairing?.url) {
-            const link = document.createElement('link');
+            const linkId = 'dynamic-google-font';
+            let link = document.getElementById(linkId) as HTMLLinkElement;
+            if (!link) {
+                link = document.createElement('link');
+                link.id = linkId;
+                link.rel = 'stylesheet';
+                document.head.appendChild(link);
+            }
             link.href = book.theme.fontPairing.url;
-            link.rel = 'stylesheet';
-            document.head.appendChild(link);
-            return () => {
-                document.head.removeChild(link);
-            };
         }
     }, [book?.theme?.fontPairing?.url]);
 
@@ -217,6 +290,35 @@ export default function App() {
             newChapters[chapterIndex] = { ...newChapters[chapterIndex], ...updatedData };
             return { ...prevBook, chapters: newChapters };
         });
+    };
+    
+    const saveBookToHistory = (newBook: Book) => {
+        setHistory(prevHistory => {
+            const updatedHistory = [newBook, ...prevHistory];
+            try {
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(updatedHistory));
+            } catch (e) {
+                console.error("Failed to save history to localStorage", e);
+            }
+            return updatedHistory;
+        });
+    };
+
+    const handleClearHistory = () => {
+        if (window.confirm("Are you sure you want to clear your entire book history? This cannot be undone.")) {
+            setHistory([]);
+            try {
+                localStorage.removeItem(HISTORY_KEY);
+            } catch (e) {
+                console.error("Failed to clear history from localStorage", e);
+            }
+        }
+    };
+
+    const handleLoadBookFromHistory = (bookToLoad: Book) => {
+        setBook(bookToLoad);
+        setStatus(GenerationStatus.Complete);
+        setShowHistory(false);
     };
 
     const handleGenerateBook = useCallback(async () => {
@@ -243,8 +345,8 @@ export default function App() {
             setProgress({ task: 'Designing book cover...', percentage: 10 });
             const coverImageUrl = await geminiService.generateImage(plan.coverPrompt, plan.theme.imageStyle);
             
-            const initialBook: Book = { ...plan, coverImageUrl };
-            setBook(initialBook);
+            let currentBook: Book = { ...plan, coverImageUrl };
+            setBook(currentBook);
             
             const totalChapters = plan.chapters.length;
 
@@ -255,22 +357,38 @@ export default function App() {
                 geminiService.generateChapterContent(plan.title, plan.plotSummary, plan.mainCharacters, ch, i > 0 ? plan.chapters[i-1].summary : null)
             );
             const rawContents = await Promise.all(contentPromises);
-            rawContents.forEach((content, i) => updateChapterInBook(i, { content }));
+            
+            currentBook = {
+                ...currentBook,
+                chapters: currentBook.chapters.map((ch, i) => ({...ch, content: rawContents[i]}))
+            };
+            setBook(currentBook);
             
             // 4. Proofread in Parallel
             setStatus(GenerationStatus.Proofreading);
             setProgress({ task: 'Proofreading the manuscript...', percentage: 60 });
             const proofreadPromises = rawContents.map(content => geminiService.proofreadText(content));
             const proofreadContents = await Promise.all(proofreadPromises);
-            proofreadContents.forEach((content, i) => updateChapterInBook(i, { content }));
+
+            currentBook = {
+                ...currentBook,
+                chapters: currentBook.chapters.map((ch, i) => ({...ch, content: proofreadContents[i]}))
+            };
+            setBook(currentBook);
 
             // 5. Generate Images in Parallel
             setStatus(GenerationStatus.GeneratingImages);
             setProgress({ task: 'Creating illustrations...', percentage: 85 });
-            const imagePromises = plan.chapters.map(ch => geminiService.generateImage(ch.imagePrompt, initialBook.theme.imageStyle));
+            const imagePromises = plan.chapters.map(ch => geminiService.generateImage(ch.imagePrompt, currentBook.theme.imageStyle));
             const imageUrls = await Promise.all(imagePromises);
-            imageUrls.forEach((imageUrl, i) => updateChapterInBook(i, { imageUrl }));
+            
+            currentBook = {
+                ...currentBook,
+                chapters: currentBook.chapters.map((ch, i) => ({...ch, imageUrl: imageUrls[i]}))
+            };
+            setBook(currentBook);
 
+            saveBookToHistory(currentBook);
             setProgress({ task: 'Finalizing your masterpiece...', percentage: 100 });
             setStatus(GenerationStatus.Complete);
 
@@ -393,6 +511,11 @@ ${book.kdpCategories.join('\n')}
             case GenerationStatus.Error:
                 return (
                     <div className="w-full max-w-2xl text-center">
+                        <div className="absolute top-6 right-6">
+                             <button onClick={() => setShowHistory(true)} className="p-3 bg-gray-700/50 rounded-full hover:bg-gray-700 transition-colors" title="View History">
+                                <HistoryIcon className="w-6 h-6 text-white"/>
+                            </button>
+                        </div>
                         <BookIcon className="mx-auto h-16 w-16 text-indigo-300"/>
                         <h1 className="mt-4 text-4xl font-bold tracking-tight text-white sm:text-6xl">BookCraft AI</h1>
                         <p className="mt-6 text-lg leading-8 text-gray-300">Turn your wildest ideas into professionally written and illustrated books, ready for Kindle publishing.</p>
@@ -420,6 +543,11 @@ ${book.kdpCategories.join('\n')}
             case GenerationStatus.Complete:
                 return (
                     <div className="w-full max-w-4xl text-left">
+                         <div className="absolute top-6 right-6">
+                             <button onClick={() => setShowHistory(true)} className="p-3 bg-gray-700/50 rounded-full hover:bg-gray-700 transition-colors" title="View History">
+                                <HistoryIcon className="w-6 h-6 text-white"/>
+                            </button>
+                        </div>
                         <h1 className="text-4xl font-bold text-white text-center">Your Masterpiece is Ready!</h1>
                         {book && (
                             <div className="mt-8 bg-gray-800/50 p-6 sm:p-8 rounded-lg shadow-2xl backdrop-blur-sm border border-gray-700">
@@ -498,6 +626,7 @@ ${book.kdpCategories.join('\n')}
     return (
         <main className="relative min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 overflow-hidden">
              <div className="absolute inset-0 bg-grid-gray-700/[0.2] [mask-image:linear-gradient(to_bottom,white_5%,transparent_100%)]"></div>
+             {showHistory && <HistoryPanel history={history} onLoadBook={handleLoadBookFromHistory} onClearHistory={handleClearHistory} onClose={() => setShowHistory(false)} />}
              <div className="relative z-10 flex items-center justify-center w-full min-h-screen">
                 {renderContent()}
              </div>

@@ -1,3 +1,4 @@
+
 import JSZip from 'jszip';
 import { Book } from '../types';
 
@@ -90,7 +91,7 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
         h1, h2, h3 { font-family: "${book.theme.fontPairing.heading}", sans-serif; text-align: center; line-height: 1.2; margin-top: 1.5em; margin-bottom: 1em; page-break-before: always; page-break-after: avoid; }
         h1 { font-size: 2.5em; }
         h2 { font-size: 2em; }
-        h3 { font-size: 1.5em; }
+        h3 { font-size: 1.5em; text-align: left; }
         p.para { margin: 0 0 1em 0; text-align: justify; text-indent: 1.5em; }
         img { max-width: 100%; height: auto; display: block; margin: 1.5em auto; }
         .cover-image { width: 100%; height: auto; }
@@ -101,9 +102,12 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
         .epigraph { font-style: italic; color: #555; margin: 3em 2em 3em 2em; text-align: left; text-indent: 0; }
         .toc { list-style-type: none; padding: 0; }
         .toc li a { text-decoration: none; color: inherit; }
+        .character-profile { margin-bottom: 1.5em; }
+        .character-profile h3 { margin-bottom: 0.25em; }
+        .character-profile p { text-indent: 0 !important; }
     `);
 
-    // 4. Content files (Cover, Title, Copyright, Dedication, ToC, Preface, Chapters, Author)
+    // 4. Content files (Cover, Title, Copyright, Dedication, ToC, Characters, Preface, Chapters, Author)
     const coverImageInfo = await fetchAndEncodeImage(book.coverImageUrl);
     imagesFolder?.file(`cover.${coverImageInfo.ext}`, coverImageInfo.data);
     textFolder?.file("cover.xhtml", createXHTML("Cover", `<div class="cover-container"><img src="../images/cover.${coverImageInfo.ext}" alt="Cover Image" class="cover-image"/></div>`));
@@ -114,11 +118,23 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
     // HTML Table of Contents
     const tocHTML = `<h1>Table of Contents</h1>
     <ol class="toc">
+      <li><a href="dramatis-personae.xhtml">Dramatis Personae</a></li>
       <li><a href="preface.xhtml">Preface</a></li>
       ${book.chapters.map((ch, i) => `<li><a href="chapter_${i + 1}.xhtml">Chapter ${i + 1}: ${ch.title}</a></li>`).join('')}
       <li><a href="author.xhtml">About the Author</a></li>
     </ol>`;
     textFolder?.file("toc.xhtml", createXHTML("Table of Contents", tocHTML));
+
+    // Dramatis Personae
+    const charactersHTML = `<h2>Dramatis Personae</h2>
+    ${book.mainCharacters.map(char => `
+      <div class="character-profile">
+        <h3>${char.name} <em>- ${char.role}</em></h3>
+        <p>${char.description}</p>
+      </div>
+    `).join('')}`;
+    textFolder?.file("dramatis-personae.xhtml", createXHTML("Dramatis Personae", charactersHTML));
+
 
     textFolder?.file("preface.xhtml", createXHTML("Preface", `<h2>Preface</h2>${formatParagraphs(book.preface)}`));
 
@@ -150,6 +166,7 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
         <item id="copyright" href="text/copyright.xhtml" media-type="application/xhtml+xml"/>
         <item id="dedication" href="text/dedication.xhtml" media-type="application/xhtml+xml"/>
         <item id="toc" href="text/toc.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+        <item id="dramatis-personae" href="text/dramatis-personae.xhtml" media-type="application/xhtml+xml"/>
         <item id="preface" href="text/preface.xhtml" media-type="application/xhtml+xml"/>
         ${book.chapters.map((_, i) => `<item id="chapter_${i + 1}" href="text/chapter_${i + 1}.xhtml" media-type="application/xhtml+xml"/>`).join('')}
         <item id="author" href="text/author.xhtml" media-type="application/xhtml+xml"/>
@@ -163,6 +180,7 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
         <itemref idref="copyright"/>
         <itemref idref="dedication"/>
         <itemref idref="toc"/>
+        <itemref idref="dramatis-personae"/>
         <itemref idref="preface"/>
         ${book.chapters.map((_, i) => `<itemref idref="chapter_${i + 1}"/>`).join('')}
         <itemref idref="author"/>
@@ -187,10 +205,11 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
         <navPoint id="navPoint-1" playOrder="1"><navLabel><text>Cover</text></navLabel><content src="text/cover.xhtml"/></navPoint>
         <navPoint id="navPoint-2" playOrder="2"><navLabel><text>Title Page</text></navLabel><content src="text/title-page.xhtml"/></navPoint>
         <navPoint id="navPoint-3" playOrder="3"><navLabel><text>Table of Contents</text></navLabel><content src="text/toc.xhtml"/></navPoint>
-        <navPoint id="navPoint-4" playOrder="4"><navLabel><text>Dedication</text></navLabel><content src="text/dedication.xhtml"/></navPoint>
-        <navPoint id="navPoint-5" playOrder="5"><navLabel><text>Preface</text></navLabel><content src="text/preface.xhtml"/></navPoint>
-        ${book.chapters.map((ch, i) => `<navPoint id="navPoint-${i + 6}" playOrder="${i + 6}"><navLabel><text>Chapter ${i + 1}: ${ch.title}</text></navLabel><content src="text/chapter_${i + 1}.xhtml"/></navPoint>`).join('')}
-        <navPoint id="navPoint-${book.chapters.length + 6}" playOrder="${book.chapters.length + 6}"><navLabel><text>About the Author</text></navLabel><content src="text/author.xhtml"/></navPoint>
+        <navPoint id="navPoint-4" playOrder="4"><navLabel><text>Dramatis Personae</text></navLabel><content src="text/dramatis-personae.xhtml"/></navPoint>
+        <navPoint id="navPoint-5" playOrder="5"><navLabel><text>Dedication</text></navLabel><content src="text/dedication.xhtml"/></navPoint>
+        <navPoint id="navPoint-6" playOrder="6"><navLabel><text>Preface</text></navLabel><content src="text/preface.xhtml"/></navPoint>
+        ${book.chapters.map((ch, i) => `<navPoint id="navPoint-${i + 7}" playOrder="${i + 7}"><navLabel><text>Chapter ${i + 1}: ${ch.title}</text></navLabel><content src="text/chapter_${i + 1}.xhtml"/></navPoint>`).join('')}
+        <navPoint id="navPoint-${book.chapters.length + 7}" playOrder="${book.chapters.length + 7}"><navLabel><text>About the Author</text></navLabel><content src="text/author.xhtml"/></navPoint>
     `;
     const tocNCX = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
