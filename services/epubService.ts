@@ -47,13 +47,16 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
         body { font-family: serif; line-height: 1.6; }
         h1, h2 { text-align: center; }
         img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+        .dedication { text-align: center; font-style: italic; margin-top: 5em; margin-bottom: 5em; }
+        .epigraph { font-style: italic; color: #555; margin-bottom: 2em; text-align: left; }
     `);
 
-    // 4. Content files (Cover, Preface, Chapters, Author)
+    // 4. Content files (Cover, Dedication, Preface, Chapters, Author)
     const coverImageInfo = await fetchAndEncodeImage(book.coverImageUrl);
     const coverExt = coverImageInfo.mimeType.split('/')[1] || 'jpeg';
     imagesFolder?.file(`cover.${coverExt}`, coverImageInfo.data);
     textFolder?.file("cover.xhtml", createXHTML(book.title, `<h1>${book.title}</h1><h2>by ${book.author.name}</h2><img src="../images/cover.${coverExt}" alt="Cover Image" />`));
+    textFolder?.file("dedication.xhtml", createXHTML("Dedication", `<div class="dedication"><p>${book.dedication}</p></div>`));
     textFolder?.file("preface.xhtml", createXHTML("Preface", `<h2>Preface</h2><p>${book.preface.replace(/\n/g, '<br/>')}</p>`));
 
     const chapterImageInfos = await Promise.all(book.chapters.map(ch => fetchAndEncodeImage(ch.imageUrl)));
@@ -65,6 +68,7 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
         imagesFolder?.file(imgFileName, imageInfo.data);
 
         const chapterBody = `<h2>Chapter ${index + 1}: ${chapter.title}</h2>
+        <div class="epigraph">"${chapter.epigraph}"</div>
         <img src="../images/${imgFileName}" alt="${chapter.title}" />
         <p>${chapter.content.replace(/\n/g, '<br/>')}</p>`;
         textFolder?.file(`chapter_${index + 1}.xhtml`, createXHTML(chapter.title, chapterBody));
@@ -76,6 +80,7 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
     const manifestItems = `
         <item id="css" href="css/style.css" media-type="text/css"/>
         <item id="cover" href="text/cover.xhtml" media-type="application/xhtml+xml"/>
+        <item id="dedication" href="text/dedication.xhtml" media-type="application/xhtml+xml"/>
         <item id="preface" href="text/preface.xhtml" media-type="application/xhtml+xml"/>
         ${book.chapters.map((_, i) => `<item id="chapter_${i + 1}" href="text/chapter_${i + 1}.xhtml" media-type="application/xhtml+xml"/>`).join('')}
         <item id="author" href="text/author.xhtml" media-type="application/xhtml+xml"/>
@@ -85,6 +90,7 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
     `;
     const spineItems = `
         <itemref idref="cover" linear="no"/>
+        <itemref idref="dedication"/>
         <itemref idref="preface"/>
         ${book.chapters.map((_, i) => `<itemref idref="chapter_${i + 1}"/>`).join('')}
         <itemref idref="author"/>
@@ -104,9 +110,10 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
 
     // 6. NCX (Table of Contents)
     const navPoints = `
-        <navPoint id="navPoint-1" playOrder="1"><navLabel><text>Preface</text></navLabel><content src="text/preface.xhtml"/></navPoint>
-        ${book.chapters.map((ch, i) => `<navPoint id="navPoint-${i + 2}" playOrder="${i + 2}"><navLabel><text>Chapter ${i + 1}: ${ch.title}</text></navLabel><content src="text/chapter_${i + 1}.xhtml"/></navPoint>`).join('')}
-        <navPoint id="navPoint-${book.chapters.length + 2}" playOrder="${book.chapters.length + 2}"><navLabel><text>About the Author</text></navLabel><content src="text/author.xhtml"/></navPoint>
+        <navPoint id="navPoint-1" playOrder="1"><navLabel><text>Dedication</text></navLabel><content src="text/dedication.xhtml"/></navPoint>
+        <navPoint id="navPoint-2" playOrder="2"><navLabel><text>Preface</text></navLabel><content src="text/preface.xhtml"/></navPoint>
+        ${book.chapters.map((ch, i) => `<navPoint id="navPoint-${i + 3}" playOrder="${i + 3}"><navLabel><text>Chapter ${i + 1}: ${ch.title}</text></navLabel><content src="text/chapter_${i + 1}.xhtml"/></navPoint>`).join('')}
+        <navPoint id="navPoint-${book.chapters.length + 3}" playOrder="${book.chapters.length + 3}"><navLabel><text>About the Author</text></navLabel><content src="text/author.xhtml"/></navPoint>
     `;
     const tocNCX = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">

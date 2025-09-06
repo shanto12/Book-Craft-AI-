@@ -11,9 +11,46 @@ import { BookIcon, DownloadIcon, SparkleIcon } from './components/Icons';
 const PdfDocument: React.FC<{ book: Book | null, a4Ref: React.RefObject<HTMLDivElement> }> = ({ book, a4Ref }) => {
     if (!book) return null;
     
+    // Inject styles for printing, specifically for drop caps and page layout
+    const styles = `
+      .drop-cap::first-letter {
+        font-size: 4em;
+        font-family: 'Lora', serif;
+        font-weight: bold;
+        float: left;
+        line-height: 0.75;
+        margin-right: 0.05em;
+        padding-top: 0.1em;
+      }
+      .page-header {
+        position: absolute;
+        top: 10mm;
+        left: 20mm;
+        right: 20mm;
+        height: 10mm;
+        font-size: 9pt;
+        color: #666;
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 2mm;
+      }
+      .page-footer {
+        position: absolute;
+        bottom: 10mm;
+        left: 20mm;
+        right: 20mm;
+        height: 5mm;
+        font-size: 9pt;
+        color: #666;
+        text-align: center;
+      }
+    `;
+
     const pageStyle: React.CSSProperties = {
         width: '210mm',
         minHeight: '297mm',
+        padding: '20mm', // Standard book margins
         backgroundColor: 'white',
         color: 'black',
         pageBreakAfter: 'always',
@@ -21,6 +58,7 @@ const PdfDocument: React.FC<{ book: Book | null, a4Ref: React.RefObject<HTMLDivE
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
+        boxSizing: 'border-box',
     };
 
     const chapterContentStyle: React.CSSProperties = {
@@ -31,34 +69,93 @@ const PdfDocument: React.FC<{ book: Book | null, a4Ref: React.RefObject<HTMLDivE
         fontFamily: 'Lora, serif',
         whiteSpace: 'pre-wrap',
         textAlign: 'justify',
+        paddingTop: '15mm', // Space for header
+        paddingBottom: '10mm', // Space for footer
     };
+    
+    let pageCounter = 1;
 
     return (
         <div ref={a4Ref} style={{ position: 'absolute', left: '-9999px', top: 0 }}>
-             {/* Cover Page */}
-            <div style={pageStyle} className="p-16 flex flex-col items-center justify-center text-center">
-                <img src={book.coverImageUrl} alt="Book Cover" className="w-full h-auto max-w-[150mm] max-h-[200mm] object-contain shadow-2xl" />
-                <h1 className="text-5xl font-serif mt-8">{book.title}</h1>
-                <p className="text-2xl mt-4 text-gray-700">{book.author.name}</p>
+             <style>{styles}</style>
+             
+             {/* Cover Page - No headers/footers */}
+            <div style={{...pageStyle, padding: 0}} className="flex flex-col items-center justify-center text-center">
+                <img src={book.coverImageUrl} alt="Book Cover" className="w-full h-full object-cover" />
             </div>
+            
+            {/* Dedication Page */}
+            <div style={{...pageStyle, justifyContent: 'center', alignItems: 'center'}}>
+                 <div className="page-footer">{pageCounter++}</div>
+                 <div className="text-center italic text-gray-700 text-lg font-serif">
+                    {book.dedication}
+                 </div>
+            </div>
+
+            {/* Table of Contents */}
+            <div style={pageStyle}>
+                 <div className="page-header"><span>Table of Contents</span><span></span></div>
+                 <div className="page-footer">{pageCounter++}</div>
+                 <div style={{paddingTop: '15mm'}}>
+                     <h2 className="text-3xl font-serif mb-8 border-b pb-2 text-center">Table of Contents</h2>
+                     <ul className="space-y-3">
+                        <li className="text-lg font-serif">Preface</li>
+                        {book.chapters.map((chapter, index) => (
+                            <li key={index} className="text-lg font-serif">Chapter {index + 1}: {chapter.title}</li>
+                        ))}
+                        <li className="text-lg font-serif">About the Author</li>
+                     </ul>
+                </div>
+            </div>
+
             {/* Preface Page */}
-            <div style={pageStyle} className="p-20">
-                <h2 className="text-3xl font-serif mb-6 border-b pb-2">Preface</h2>
-                <div style={chapterContentStyle}>{book.preface}</div>
+            <div style={pageStyle}>
+                <div className="page-header"><span>{book.title}</span><span>Preface</span></div>
+                <div className="page-footer">{pageCounter++}</div>
+                <div style={chapterContentStyle}>
+                    <h2 className="text-3xl font-serif mb-6 border-b pb-2">Preface</h2>
+                    <div className="drop-cap">{book.preface}</div>
+                </div>
             </div>
+
             {/* Chapters */}
             {book.chapters.map((chapter, index) => (
-                <div key={index} style={pageStyle} className="p-20">
-                    <h2 className="text-3xl font-serif mb-6 border-b pb-2">{`Chapter ${index + 1}: ${chapter.title}`}</h2>
-                    {chapter.imageUrl && <img src={chapter.imageUrl} alt={`Illustration for ${chapter.title}`} className="w-full max-w-[150mm] h-auto mx-auto my-6 shadow-lg rounded-md" />}
-                    <div style={chapterContentStyle}>{chapter.content}</div>
+                <div key={index} style={pageStyle}>
+                    <div className="page-header"><span>{book.title}</span><span>Chapter {index + 1}</span></div>
+                    <div className="page-footer">{pageCounter++}</div>
+                    <div style={chapterContentStyle}>
+                        <h2 className="text-3xl font-serif mb-2">{`Chapter ${index + 1}: ${chapter.title}`}</h2>
+                        <p className="text-md font-serif italic text-gray-600 mb-6 border-b pb-4">"{chapter.epigraph}"</p>
+                        {chapter.imageUrl && <img src={chapter.imageUrl} alt={`Illustration for ${chapter.title}`} className="w-full max-w-[150mm] h-auto mx-auto my-6 shadow-lg rounded-md" />}
+                        <div className="drop-cap">{chapter.content}</div>
+                    </div>
                 </div>
             ))}
             {/* About Author */}
-             <div style={pageStyle} className="p-20">
-                <h2 className="text-3xl font-serif mb-6 border-b pb-2">About the Author</h2>
-                <p className="text-2xl font-serif mb-4">{book.author.name}</p>
-                <div style={chapterContentStyle}>{book.author.bio}</div>
+             <div style={pageStyle}>
+                <div className="page-header"><span>{book.title}</span><span>About the Author</span></div>
+                <div className="page-footer">{pageCounter++}</div>
+                <div style={chapterContentStyle}>
+                    <h2 className="text-3xl font-serif mb-6 border-b pb-2">About the Author</h2>
+                    <p className="text-2xl font-serif mb-4">{book.author.name}</p>
+                    <div style={{whiteSpace: 'pre-wrap'}}>{book.author.bio}</div>
+                     {book.author.alsoByAuthor && book.author.alsoByAuthor.length > 0 && (
+                        <div className="mt-12">
+                            <h3 className="text-2xl font-serif mb-4">Also by {book.author.name}</h3>
+                            <ul className="list-disc list-inside">
+                                {book.author.alsoByAuthor.map((title, i) => (
+                                    <li key={i} className="text-lg font-serif italic">{title}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+            </div>
+            {/* Back Cover */}
+            <div style={{...pageStyle, backgroundColor: '#2d3748', color: 'white', padding: '20mm', boxSizing: 'border-box'}} className="flex flex-col items-center justify-center text-center">
+                <div className="border-4 border-white p-8">
+                    <p className="text-xl font-serif leading-relaxed">{book.backCoverBlurb}</p>
+                </div>
             </div>
         </div>
     );
@@ -105,9 +202,13 @@ export default function App() {
             setProgress({ task: 'Developing a captivating plot...', percentage: 5 });
             const plan = await geminiService.generateBookPlan(prompt);
             
-            setProgress({ task: 'Designing book cover...', percentage: 10 });
-            const coverImageUrl = await geminiService.generateImage(plan.coverPrompt);
-            const initialBook: Book = { ...plan, coverImageUrl };
+            setProgress({ task: 'Designing book cover & blurb...', percentage: 10 });
+            const coverImagePromise = geminiService.generateImage(plan.coverPrompt);
+            const backCoverBlurbPromise = geminiService.generateBackCoverBlurb(plan.plotSummary);
+
+            const [coverImageUrl, backCoverBlurb] = await Promise.all([coverImagePromise, backCoverBlurbPromise]);
+
+            const initialBook: Book = { ...plan, coverImageUrl, backCoverBlurb };
             setBook(initialBook);
             
             const totalChapters = plan.chapters.length;
@@ -116,7 +217,7 @@ export default function App() {
             setStatus(GenerationStatus.GeneratingChapters);
             setProgress({ task: `Writing ${totalChapters} chapters...`, percentage: 20 });
             const contentPromises = plan.chapters.map((ch, i) =>
-                geminiService.generateChapterContent(plan.title, plan.plotSummary, ch, i > 0 ? plan.chapters[i-1].summary : null)
+                geminiService.generateChapterContent(plan.title, plan.plotSummary, plan.mainCharacters, ch, i > 0 ? plan.chapters[i-1].summary : null)
             );
             const rawContents = await Promise.all(contentPromises);
             rawContents.forEach((content, i) => updateChapterInBook(i, { content }));
@@ -153,10 +254,11 @@ export default function App() {
             const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
             const pages = pdfRef.current.children;
 
-            for (let i = 0; i < pages.length; i++) {
+            // Skip the <style> tag
+            for (let i = 1; i < pages.length; i++) {
                 const page = pages[i] as HTMLElement;
-                const canvas = await html2canvas(page, { scale: 2, useCORS: true });
-                if (i > 0) doc.addPage();
+                const canvas = await html2canvas(page, { scale: 2, useCORS: true, logging: false });
+                if (i > 1) doc.addPage();
                 doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 210, 297, undefined, 'FAST');
             }
             doc.save(`${book.title.replace(/\s/g, '_')}.pdf`);
@@ -191,9 +293,9 @@ export default function App() {
     const renderStatusMessages = () => {
         switch(status) {
             case GenerationStatus.GeneratingPlot:
-                return "Our AI is developing a captivating plot and outlining the chapters. This forms the soul of your book.";
+                return "Our AI is developing a captivating plot, fleshing out characters, and outlining the chapters. This forms the soul of your book.";
             case GenerationStatus.GeneratingChapters:
-                 return "The author is now writing the full text for every chapter. This is the most time-consuming step.";
+                 return "The author is now writing the full text for every chapter, guided by the detailed character profiles. This is the most time-consuming step.";
             case GenerationStatus.Proofreading:
                 return "A meticulous AI editor is now proofreading the entire manuscript for errors and clarity.";
             case GenerationStatus.GeneratingImages:
@@ -245,7 +347,7 @@ export default function App() {
                                         <h2 className="text-3xl font-serif text-white">{book.title}</h2>
                                         <p className="text-xl text-gray-300 mt-2">by {book.author.name}</p>
                                         <p className="mt-4 text-gray-400 font-serif italic">{book.preface.substring(0, 200)}...</p>
-                                        <div className="mt-8 flex flex-col sm:flex-row gap-4">
+                                        <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
                                             <button
                                                 onClick={handleDownloadPdf}
                                                 disabled={isDownloadingPdf || isDownloadingEpub}
@@ -262,8 +364,16 @@ export default function App() {
                                                 {isDownloadingEpub ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> : <BookIcon className="w-5 h-5 mr-2" />}
                                                 <span className="ml-2">{isDownloadingEpub ? 'Preparing EPUB...' : 'Download EPUB'}</span>
                                             </button>
+                                            <button
+                                                disabled
+                                                title="Amazon Kindle now directly accepts EPUB files. MOBI is a legacy format and is no longer recommended."
+                                                className="flex items-center justify-center w-full px-6 py-3 bg-gray-600 text-white font-semibold rounded-lg shadow-lg cursor-help opacity-60"
+                                            >
+                                                <BookIcon className="w-5 h-5 mr-2" />
+                                                <span className="ml-2">Download MOBI</span>
+                                            </button>
                                         </div>
-                                         <p className="text-sm text-gray-400 mt-3 text-center sm:text-left">EPUB is recommended for Kindle, Apple Books, and other e-readers.</p>
+                                         <p className="text-sm text-gray-400 mt-3 text-center">For Kindle, Apple Books, and other e-readers, please use the <b>EPUB</b> format.</p>
                                     </div>
                                 </div>
                             </div>
