@@ -1,25 +1,33 @@
 import JSZip from 'jszip';
 import { Book } from '../types';
 
-const fetchAndEncodeImage = async (url: string): Promise<{ data: ArrayBuffer, mimeType: string }> => {
+const fetchAndEncodeImage = async (url: string): Promise<{ data: ArrayBuffer, mimeType: string, ext: string }> => {
     const response = await fetch(url);
     const blob = await response.blob();
     const data = await blob.arrayBuffer();
-    return { data, mimeType: blob.type };
+    const mimeType = blob.type;
+    const ext = mimeType.split('/')[1] || 'jpeg';
+    return { data, mimeType, ext };
 };
 
-const createXHTML = (title: string, bodyContent: string): string => {
+const createXHTML = (title: string, bodyContent: string, headContent: string = ''): string => {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en">
 <head>
   <title>${title}</title>
   <link href="../css/style.css" rel="stylesheet" type="text/css" />
+  ${headContent}
 </head>
 <body>
   ${bodyContent}
 </body>
 </html>`;
+};
+
+const formatParagraphs = (text: string): string => {
+    if (!text) return '';
+    return text.split('\n').filter(p => p.trim() !== '').map(p => `<p class="para">${p.trim()}</p>`).join('\n');
 };
 
 export const generateEpub = async (book: Book): Promise<Blob> => {
@@ -41,79 +49,148 @@ export const generateEpub = async (book: Book): Promise<Blob> => {
     const textFolder = oebps?.folder("text");
     const cssFolder = oebps?.folder("css");
     const imagesFolder = oebps?.folder("images");
+    const fontsFolder = oebps?.folder("fonts");
+    
+    // 3. Fonts and CSS
+    const fontCss = `
+        @font-face {
+            font-family: "${book.theme.fontPairing.heading}";
+            src: url(../fonts/heading.woff2) format('woff2');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: "${book.theme.fontPairing.body}";
+            src: url(../fonts/body.woff2) format('woff2');
+            font-weight: normal;
+            font-style: normal;
+        }
+    `;
 
-    // 3. CSS
+    // Fetch font files from Google Fonts API
+    try {
+        const fontUrlResponse = await fetch(book.theme.fontPairing.url);
+        const fontUrlCss = await fontUrlResponse.text();
+        const headingFontUrlMatch = fontUrlCss.match(new RegExp(`font-family: '${book.theme.fontPairing.heading}'.*?url\\((.*?)\\)`, 's'));
+        const bodyFontUrlMatch = fontUrlCss.match(new RegExp(`font-family: '${book.theme.fontPairing.body}'.*?url\\((.*?)\\)`, 's'));
+
+        if (headingFontUrlMatch?.[1] && bodyFontUrlMatch?.[1]) {
+            const headingFontFile = await fetch(headingFontUrlMatch[1]).then(res => res.arrayBuffer());
+            const bodyFontFile = await fetch(bodyFontUrlMatch[1]).then(res => res.arrayBuffer());
+            fontsFolder?.file("heading.woff2", headingFontFile);
+            fontsFolder?.file("body.woff2", bodyFontFile);
+        }
+    } catch(e) {
+        console.error("Could not fetch or embed fonts, using serif fallback.", e)
+    }
+
     cssFolder?.file("style.css", `
-        body { font-family: serif; line-height: 1.6; }
-        h1, h2 { text-align: center; }
-        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
-        .dedication { text-align: center; font-style: italic; margin-top: 5em; margin-bottom: 5em; }
-        .epigraph { font-style: italic; color: #555; margin-bottom: 2em; text-align: left; }
+        ${fontCss}
+        body { font-family: "${book.theme.fontPairing.body}", serif; line-height: 1.6; margin: 1em; }
+        h1, h2, h3 { font-family: "${book.theme.fontPairing.heading}", sans-serif; text-align: center; line-height: 1.2; margin-top: 1.5em; margin-bottom: 1em; page-break-before: always; page-break-after: avoid; }
+        h1 { font-size: 2.5em; }
+        h2 { font-size: 2em; }
+        h3 { font-size: 1.5em; }
+        p.para { margin: 0 0 1em 0; text-align: justify; text-indent: 1.5em; }
+        img { max-width: 100%; height: auto; display: block; margin: 1.5em auto; }
+        .cover-image { width: 100%; height: auto; }
+        .title-page { text-align: center; margin: 5em 0; page-break-before: always; }
+        .copyright-page { font-size: 0.8em; color: #555; margin: 2em; page-break-before: always; }
+        .copyright-page p { text-indent: 0; }
+        .dedication { text-align: center; font-style: italic; margin: 10em 2em; page-break-before: always; }
+        .epigraph { font-style: italic; color: #555; margin: 3em 2em 3em 2em; text-align: left; text-indent: 0; }
+        .toc { list-style-type: none; padding: 0; }
+        .toc li a { text-decoration: none; color: inherit; }
     `);
 
-    // 4. Content files (Cover, Dedication, Preface, Chapters, Author)
+    // 4. Content files (Cover, Title, Copyright, Dedication, ToC, Preface, Chapters, Author)
     const coverImageInfo = await fetchAndEncodeImage(book.coverImageUrl);
-    const coverExt = coverImageInfo.mimeType.split('/')[1] || 'jpeg';
-    imagesFolder?.file(`cover.${coverExt}`, coverImageInfo.data);
-    textFolder?.file("cover.xhtml", createXHTML(book.title, `<h1>${book.title}</h1><h2>by ${book.author.name}</h2><img src="../images/cover.${coverExt}" alt="Cover Image" />`));
+    imagesFolder?.file(`cover.${coverImageInfo.ext}`, coverImageInfo.data);
+    textFolder?.file("cover.xhtml", createXHTML("Cover", `<div class="cover-container"><img src="../images/cover.${coverImageInfo.ext}" alt="Cover Image" class="cover-image"/></div>`));
+    textFolder?.file("title-page.xhtml", createXHTML(book.title, `<div class="title-page"><h1>${book.title}</h1><h3>by</h3><h2>${book.author.name}</h2><br/><br/><p>${book.publisher}</p></div>`));
+    textFolder?.file("copyright.xhtml", createXHTML("Copyright", `<div class="copyright-page"><p>Copyright &copy; ${new Date().getFullYear()} by ${book.author.name}</p><p>Published by ${book.publisher}</p><br/><p>All rights reserved.</p></div>`));
     textFolder?.file("dedication.xhtml", createXHTML("Dedication", `<div class="dedication"><p>${book.dedication}</p></div>`));
-    textFolder?.file("preface.xhtml", createXHTML("Preface", `<h2>Preface</h2><p>${book.preface.replace(/\n/g, '<br/>')}</p>`));
+    
+    // HTML Table of Contents
+    const tocHTML = `<h1>Table of Contents</h1>
+    <ol class="toc">
+      <li><a href="preface.xhtml">Preface</a></li>
+      ${book.chapters.map((ch, i) => `<li><a href="chapter_${i + 1}.xhtml">Chapter ${i + 1}: ${ch.title}</a></li>`).join('')}
+      <li><a href="author.xhtml">About the Author</a></li>
+    </ol>`;
+    textFolder?.file("toc.xhtml", createXHTML("Table of Contents", tocHTML));
+
+    textFolder?.file("preface.xhtml", createXHTML("Preface", `<h2>Preface</h2>${formatParagraphs(book.preface)}`));
 
     const chapterImageInfos = await Promise.all(book.chapters.map(ch => fetchAndEncodeImage(ch.imageUrl)));
 
     book.chapters.forEach((chapter, index) => {
         const imageInfo = chapterImageInfos[index];
-        const imgExt = imageInfo.mimeType.split('/')[1] || 'jpeg';
-        const imgFileName = `chapter_${index + 1}.${imgExt}`;
+        const imgFileName = `chapter_${index + 1}.${imageInfo.ext}`;
         imagesFolder?.file(imgFileName, imageInfo.data);
 
         const chapterBody = `<h2>Chapter ${index + 1}: ${chapter.title}</h2>
         <div class="epigraph">"${chapter.epigraph}"</div>
         <img src="../images/${imgFileName}" alt="${chapter.title}" />
-        <p>${chapter.content.replace(/\n/g, '<br/>')}</p>`;
+        ${formatParagraphs(chapter.content)}`;
         textFolder?.file(`chapter_${index + 1}.xhtml`, createXHTML(chapter.title, chapterBody));
     });
+    
+    const authorBio = `<h2>About the Author</h2><h3>${book.author.name}</h3>${formatParagraphs(book.author.bio)}`;
+    textFolder?.file("author.xhtml", createXHTML("About the Author", authorBio));
 
-    textFolder?.file("author.xhtml", createXHTML("About the Author", `<h2>About the Author</h2><h3>${book.author.name}</h3><p>${book.author.bio.replace(/\n/g, '<br/>')}</p>`));
 
     // 5. OPF (Manifest, Metadata, Spine)
     const manifestItems = `
         <item id="css" href="css/style.css" media-type="text/css"/>
+        <item id="heading-font" href="fonts/heading.woff2" media-type="font/woff2" />
+        <item id="body-font" href="fonts/body.woff2" media-type="font/woff2" />
         <item id="cover" href="text/cover.xhtml" media-type="application/xhtml+xml"/>
+        <item id="title-page" href="text/title-page.xhtml" media-type="application/xhtml+xml"/>
+        <item id="copyright" href="text/copyright.xhtml" media-type="application/xhtml+xml"/>
         <item id="dedication" href="text/dedication.xhtml" media-type="application/xhtml+xml"/>
+        <item id="toc" href="text/toc.xhtml" media-type="application/xhtml+xml" properties="nav"/>
         <item id="preface" href="text/preface.xhtml" media-type="application/xhtml+xml"/>
         ${book.chapters.map((_, i) => `<item id="chapter_${i + 1}" href="text/chapter_${i + 1}.xhtml" media-type="application/xhtml+xml"/>`).join('')}
         <item id="author" href="text/author.xhtml" media-type="application/xhtml+xml"/>
-        <item id="cover-image" href="images/cover.${coverExt}" media-type="${coverImageInfo.mimeType}"/>
-        ${chapterImageInfos.map((info, i) => `<item id="img_chapter_${i + 1}" href="images/chapter_${i + 1}.${info.mimeType.split('/')[1]}" media-type="${info.mimeType}"/>`).join('')}
+        <item id="cover-image" href="images/cover.${coverImageInfo.ext}" media-type="${coverImageInfo.mimeType}" properties="cover-image"/>
+        ${chapterImageInfos.map((info, i) => `<item id="img_chapter_${i + 1}" href="images/chapter_${i + 1}.${info.ext}" media-type="${info.mimeType}"/>`).join('')}
         <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
     `;
     const spineItems = `
         <itemref idref="cover" linear="no"/>
+        <itemref idref="title-page"/>
+        <itemref idref="copyright"/>
         <itemref idref="dedication"/>
+        <itemref idref="toc"/>
         <itemref idref="preface"/>
         ${book.chapters.map((_, i) => `<itemref idref="chapter_${i + 1}"/>`).join('')}
         <itemref idref="author"/>
     `;
     const contentOPF = `<?xml version="1.0" encoding="UTF-8"?>
-<package version="2.0" unique-identifier="BookId" xmlns="http://www.idpf.org/2007/opf">
+<package version="3.0" unique-identifier="BookId" xmlns="http://www.idpf.org/2007/opf">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
     <dc:title>${book.title}</dc:title>
-    <dc:creator opf:role="aut">${book.author.name}</dc:creator>
+    <dc:creator id="creator">${book.author.name}</dc:creator>
+    <meta refines="#creator" property="role" scheme="marc:relators">aut</meta>
+    <dc:description>${book.backCoverBlurb}</dc:description>
     <dc:language>en</dc:language>
-    <meta name="cover" content="cover-image"/>
+    <meta property="dcterms:modified">${new Date().toISOString().split('.')[0] + 'Z'}</meta>
   </metadata>
   <manifest>${manifestItems}</manifest>
   <spine toc="ncx">${spineItems}</spine>
 </package>`;
     oebps?.file("content.opf", contentOPF);
 
-    // 6. NCX (Table of Contents)
+    // 6. NCX (Table of Contents for older devices)
     const navPoints = `
-        <navPoint id="navPoint-1" playOrder="1"><navLabel><text>Dedication</text></navLabel><content src="text/dedication.xhtml"/></navPoint>
-        <navPoint id="navPoint-2" playOrder="2"><navLabel><text>Preface</text></navLabel><content src="text/preface.xhtml"/></navPoint>
-        ${book.chapters.map((ch, i) => `<navPoint id="navPoint-${i + 3}" playOrder="${i + 3}"><navLabel><text>Chapter ${i + 1}: ${ch.title}</text></navLabel><content src="text/chapter_${i + 1}.xhtml"/></navPoint>`).join('')}
-        <navPoint id="navPoint-${book.chapters.length + 3}" playOrder="${book.chapters.length + 3}"><navLabel><text>About the Author</text></navLabel><content src="text/author.xhtml"/></navPoint>
+        <navPoint id="navPoint-1" playOrder="1"><navLabel><text>Cover</text></navLabel><content src="text/cover.xhtml"/></navPoint>
+        <navPoint id="navPoint-2" playOrder="2"><navLabel><text>Title Page</text></navLabel><content src="text/title-page.xhtml"/></navPoint>
+        <navPoint id="navPoint-3" playOrder="3"><navLabel><text>Table of Contents</text></navLabel><content src="text/toc.xhtml"/></navPoint>
+        <navPoint id="navPoint-4" playOrder="4"><navLabel><text>Dedication</text></navLabel><content src="text/dedication.xhtml"/></navPoint>
+        <navPoint id="navPoint-5" playOrder="5"><navLabel><text>Preface</text></navLabel><content src="text/preface.xhtml"/></navPoint>
+        ${book.chapters.map((ch, i) => `<navPoint id="navPoint-${i + 6}" playOrder="${i + 6}"><navLabel><text>Chapter ${i + 1}: ${ch.title}</text></navLabel><content src="text/chapter_${i + 1}.xhtml"/></navPoint>`).join('')}
+        <navPoint id="navPoint-${book.chapters.length + 6}" playOrder="${book.chapters.length + 6}"><navLabel><text>About the Author</text></navLabel><content src="text/author.xhtml"/></navPoint>
     `;
     const tocNCX = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">

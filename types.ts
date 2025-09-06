@@ -19,9 +19,19 @@ export interface CharacterProfile {
     description: string; // Detailed description of motivations, flaws, appearance, etc.
 }
 
+export interface BookTheme {
+    fontPairing: {
+        heading: string; // e.g., 'Oswald'
+        body: string;    // e.g., 'Lora'
+        url: string;     // Google Fonts URL
+    };
+    imageStyle: string; // e.g., 'ethereal watercolor', 'gritty neo-noir'
+}
+
 export interface Book {
   title: string;
   author: Author;
+  publisher: string; // Fictional, genre-appropriate publisher name
   plotSummary: string; 
   preface: string;
   dedication: string; // A dedication for the book
@@ -30,6 +40,9 @@ export interface Book {
   coverPrompt: string;
   chapters: Chapter[];
   backCoverBlurb: string;
+  theme: BookTheme;
+  kdpKeywords: string[];
+  kdpCategories: string[]; // Suggested KDP categories
 }
 
 export enum GenerationStatus {

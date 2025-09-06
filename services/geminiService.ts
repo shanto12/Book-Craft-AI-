@@ -62,9 +62,29 @@ const bookPlanSchema = {
             },
             required: ["name", "bio", "alsoByAuthor"],
         },
+        publisher: { type: Type.STRING, description: "A fictional, genre-appropriate publisher name (e.g., 'Nebula Press' for sci-fi)." },
         plotSummary: { type: Type.STRING, description: "A detailed summary of the entire plot, including the beginning, rising action, climax (with at least two major plot twists), falling action, and resolution (400-500 words)." },
         preface: { type: Type.STRING, description: "An introductory preface for the book, setting the tone (150-200 words)." },
         dedication: { type: Type.STRING, description: "A short, heartfelt or witty dedication for the book (e.g., 'For those who look at the stars and wonder.')." },
+        backCoverBlurb: { type: Type.STRING, description: "A captivating and punchy back-cover blurb (100-150 words). It should be exciting but avoid spoilers." },
+        theme: {
+            type: Type.OBJECT,
+            description: "A design theme for the book, including fonts and image style.",
+            properties: {
+                fontPairing: {
+                    type: Type.OBJECT,
+                    description: "A pair of Google Fonts for headings and body. Provide the full Google Fonts URL.",
+                    properties: {
+                        heading: { type: Type.STRING, description: "The name of the heading font, e.g., 'Oswald'." },
+                        body: { type: Type.STRING, description: "The name of the body font, e.g., 'Lora'." },
+                        url: { type: Type.STRING, description: "The full Google Fonts API URL to load these fonts." }
+                    },
+                    required: ["heading", "body", "url"],
+                },
+                imageStyle: { type: Type.STRING, description: "A consistent, descriptive art style for all illustrations (e.g., 'ethereal watercolor', 'gritty neo-noir comic book', 'vintage sci-fi poster art')." }
+            },
+            required: ["fontPairing", "imageStyle"],
+        },
         mainCharacters: {
             type: Type.ARRAY,
             description: "A list of 2-4 main characters, including the protagonist and antagonist.",
@@ -93,15 +113,25 @@ const bookPlanSchema = {
                 required: ["title", "summary", "imagePrompt", "epigraph"],
             },
         },
+        kdpKeywords: {
+            type: Type.ARRAY,
+            description: "Exactly 7 strategic KDP keywords that will maximize discoverability on Amazon. Should be a mix of specific, long-tail phrases and broader categories.",
+            items: { type: Type.STRING }
+        },
+        kdpCategories: {
+            type: Type.ARRAY,
+            description: "Two or three optimal Amazon KDP categories for the book, formatted like 'FICTION > Fantasy > Epic'.",
+            items: { type: Type.STRING }
+        }
     },
-    required: ["title", "author", "plotSummary", "preface", "dedication", "mainCharacters", "coverPrompt", "chapters"],
+    required: ["title", "author", "publisher", "plotSummary", "preface", "dedication", "backCoverBlurb", "mainCharacters", "coverPrompt", "chapters", "theme", "kdpKeywords", "kdpCategories"],
 };
 
-export const generateBookPlan = async (prompt: string): Promise<Omit<Book, 'coverImageUrl' | 'backCoverBlurb'>> => {
+export const generateBookPlan = async (prompt: string): Promise<Omit<Book, 'coverImageUrl'>> => {
     try {
         const response = await makeApiCallWithRetry(() => ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Based on this core idea: "${prompt}", generate a comprehensive plan for a full-length novel. The plan must be deeply creative and detailed enough to ensure a cohesive, character-driven, and captivating story with significant plot twists.`,
+            contents: `Based on this core idea: "${prompt}", generate a comprehensive plan for a full-length novel. The plan must be deeply creative and detailed enough to ensure a cohesive, character-driven, and captivating story with significant plot twists. It must also include all metadata required for publishing, such as KDP keywords, categories, and a fictional publisher.`,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: bookPlanSchema,
@@ -117,8 +147,9 @@ export const generateBookPlan = async (prompt: string): Promise<Omit<Book, 'cove
             content: '',
             imageUrl: '',
         }));
-
-        return { ...parsedData, chapters: chaptersWithPlaceholders };
+        
+        const partialBook: Omit<Book, 'coverImageUrl'> = { ...parsedData, chapters: chaptersWithPlaceholders };
+        return partialBook;
 
     } catch (error) {
         console.error("Error generating book plan:", error);
@@ -161,10 +192,10 @@ export const proofreadText = async (text: string): Promise<string> => {
     return response.text;
 };
 
-export const generateImage = async (prompt: string): Promise<string> => {
+export const generateImage = async (prompt: string, imageStyle: string): Promise<string> => {
     const response = await makeApiCallWithRetry(() => ai.models.generateImages({
         model: 'imagen-4.0-generate-001',
-        prompt: `An artistic, atmospheric book illustration. Style: moody, evocative, high-quality. Subject: ${prompt}`,
+        prompt: `An artistic, atmospheric book illustration. Style: ${imageStyle}. Subject: ${prompt}`,
         config: {
             numberOfImages: 1,
             outputMimeType: 'image/jpeg',
@@ -174,13 +205,4 @@ export const generateImage = async (prompt: string): Promise<string> => {
 
     const base64ImageBytes: string = response.generatedImages[0].image.imageBytes;
     return `data:image/jpeg;base64,${base64ImageBytes}`;
-};
-
-export const generateBackCoverBlurb = async (plotSummary: string): Promise<string> => {
-    const prompt = `Based on the following detailed plot summary, write a captivating and punchy back-cover blurb for a novel. It should be exciting, hint at the main conflict and stakes, but avoid giving away major spoilers. Aim for 100-150 words. PLOT SUMMARY: "${plotSummary}"`;
-    const response = await makeApiCallWithRetry(() => ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-    }));
-    return response.text;
 };
